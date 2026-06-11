@@ -152,8 +152,36 @@ impl MediaSource for WindowsSmtc {
         self.cached_now_playing()
     }
 
-    fn transport(&self, _cmd: TransportCommand) -> Result<(), String> {
-        Err("not implemented (Phase 2)".to_string())
+    fn transport(&self, cmd: TransportCommand) -> Result<(), String> {
+        // Tauri command threads require their own COM initialization.
+        // CoInitializeEx returns S_FALSE on already-initialized threads — safe to call repeatedly.
+        unsafe {
+            let _ = windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            );
+        }
+
+        // Clone session out of the mutex before WinRT calls to avoid deadlock with
+        // the PlaybackInfoChanged handler, which also acquires this mutex.
+        let session = {
+            let guard = self.inner.lock().unwrap();
+            guard.locked_session.as_ref().map(|ls| ls.session.clone())
+        };
+
+        let Some(session) = session else {
+            return Err("no active session".to_string());
+        };
+
+        let r = |e: windows::core::Error| e.to_string();
+        match cmd {
+            TransportCommand::Play            => { session.TryPlayAsync().map_err(r)?.get().map_err(r)?; }
+            TransportCommand::Pause           => { session.TryPauseAsync().map_err(r)?.get().map_err(r)?; }
+            TransportCommand::TogglePlayPause => { session.TryTogglePlayPauseAsync().map_err(r)?.get().map_err(r)?; }
+            TransportCommand::SkipNext        => { session.TrySkipNextAsync().map_err(r)?.get().map_err(r)?; }
+            TransportCommand::SkipPrevious    => { session.TrySkipPreviousAsync().map_err(r)?.get().map_err(r)?; }
+        }
+        Ok(())
     }
 }
 

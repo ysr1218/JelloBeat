@@ -1,12 +1,12 @@
 [package]
-name = "jellobest"
+name = "jellobeat"
 version = "0.1.0"
 description = "Music overlay with jelly physics"
 authors = []
 edition = "2021"
 
 [lib]
-name = "jellobest_lib"
+name = "jellobeat_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -24,6 +24,7 @@ version = "0.61"
 features = [
   "Foundation",
   "Foundation_Collections",
+  "Media",
   "Media_Control",
   "Storage_Streams",
   "Win32_Foundation",

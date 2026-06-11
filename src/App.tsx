@@ -3,9 +3,9 @@ import { NowPlayingCard } from "./components/NowPlayingCard";
 
 function App() {
   return (
-    <main className="container">
+    <div className="overlay-root">
       <NowPlayingCard />
-    </main>
+    </div>
   );
 }
 

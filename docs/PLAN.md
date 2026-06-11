@@ -128,3 +128,13 @@
 - **진짜 비트 동기화**: WASAPI loopback으로 시스템 오디오 캡처 후 비트 추정.
 - **SD 캐릭터/스킨/테마**: 젤리박스를 Live2D/Spine/Sprite로 교체.
 - **크로스플랫폼**: Linux(MPRIS, D-Bus) → macOS(MediaRemote, 15.4+ 제약으로 가장 마지막).
+
+---
+
+## Known Limitations (Phase 1 시점)
+
+| 제약 | 원인 | 해결 가능성 |
+|---|---|---|
+| Chrome은 열린 탭 여러 개 중 하나만 SMTC에 보고 | Chrome/Windows 설계상 단일 SMTC 세션 | 불가 — 브라우저 확장 없이는 탭 구분 불가 |
+| 같은 점수 동시 재생 시 먼저 잡힌 세션 유지 | 점수 동점 시 안정성 우선 정책 | Phase 7에서 사용자 수동 선택으로 보완 가능 |
+| Spotify 데스크탑 앱 AUMID (`spotify.exe`) 는 추측값 | 실물 기기에서 직접 SMTC 로그 확인 필요 | 실물 확인 후 `KNOWN_MUSIC_APPS` 상수 수정 |

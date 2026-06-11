@@ -172,6 +172,7 @@ fn handle_session_changed<R: Runtime>(
     inner_arc: &Arc<Mutex<SmtcInner>>,
     app: &AppHandle<R>,
 ) {
+    #[cfg(debug_assertions)]
     log_sessions(manager);
 
     // Snapshot the current lock without holding the mutex across WinRT calls.
@@ -182,12 +183,16 @@ fn handle_session_changed<R: Runtime>(
         })
     };
 
-    let cur_aumid = locked_info.as_ref().map(|(a, _, _)| a.as_str()).unwrap_or("none");
-    let cur_score_disp = locked_info.as_ref().map(|(_, _, s)| s.to_string()).unwrap_or("—".into());
-    eprintln!("[SMTC] current lock: {cur_aumid} (score at lock: {cur_score_disp})");
+    #[cfg(debug_assertions)]
+    {
+        let cur_aumid = locked_info.as_ref().map(|(a, _, _)| a.as_str()).unwrap_or("none");
+        let cur_score_disp = locked_info.as_ref().map(|(_, _, s)| s.to_string()).unwrap_or("—".into());
+        eprintln!("[SMTC] current lock: {cur_aumid} (score at lock: {cur_score_disp})");
+    }
 
     match pick_best_session(manager) {
         None => {
+            #[cfg(debug_assertions)]
             eprintln!("[SMTC] no valid sessions → clearing lock");
             let old = inner_arc.lock().unwrap().locked_session.take();
             drop(old);
@@ -195,12 +200,7 @@ fn handle_session_changed<R: Runtime>(
             let _ = app.emit("media:update", Option::<NowPlaying>::None);
         }
         Some((best_sess, best_score)) => {
-            let best_aumid = best_sess
-                .SourceAppUserModelId()
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
-            let (should_switch, reason) = match &locked_info {
+            let (should_switch, _reason) = match &locked_info {
                 None => (true, "no lock"),
                 Some((_, current_sess, _)) => {
                     // Key fix: use COM object identity, not AUMID.
@@ -225,10 +225,17 @@ fn handle_session_changed<R: Runtime>(
                 }
             };
 
-            eprintln!(
-                "[SMTC] best: {best_aumid} (score: {best_score}) → {} [{reason}]",
-                if should_switch { "SWITCH" } else { "keep current" }
-            );
+            #[cfg(debug_assertions)]
+            {
+                let best_aumid = best_sess
+                    .SourceAppUserModelId()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                eprintln!(
+                    "[SMTC] best: {best_aumid} (score: {best_score}) → {} [{_reason}]",
+                    if should_switch { "SWITCH" } else { "keep current" }
+                );
+            }
 
             if should_switch {
                 let old = inner_arc.lock().unwrap().locked_session.take();
@@ -365,16 +372,18 @@ fn make_locked_session<R: Runtime>(
         .map(|s| s.to_string())
         .unwrap_or_default();
 
-    // Capture AUMID strings for diagnostic logging in the event closures.
-    let aumid_mp = source_app_id.clone();
     let inner_mp = inner_arc.clone();
     let app_mp = app.clone();
     let token_mp = session
         .MediaPropertiesChanged(&TypedEventHandler::new(move |sender, _| {
             if let Some(ref sess) = *sender {
                 let np = read_now_playing(sess);
-                let title = np.as_ref().map(|n| n.title.as_str()).unwrap_or("?");
-                eprintln!("[SMTC] [props ] {aumid_mp} | {title}");
+                #[cfg(debug_assertions)]
+                {
+                    let aumid = sess.SourceAppUserModelId().map(|s| s.to_string()).unwrap_or_default();
+                    let title = np.as_ref().map(|n| n.title.as_str()).unwrap_or("?");
+                    eprintln!("[SMTC] [props ] {aumid} | {title}");
+                }
                 inner_mp.lock().unwrap().cached = np.clone();
                 if let Some(ref np) = np {
                     let _ = app_mp.emit("media:update", np);
@@ -384,20 +393,19 @@ fn make_locked_session<R: Runtime>(
         }))
         .unwrap_or_default();
 
-    let aumid_pi = source_app_id.clone();
     let inner_pi = inner_arc.clone();
     let app_pi = app.clone();
     let token_pi = session
         .PlaybackInfoChanged(&TypedEventHandler::new(move |sender, _| {
             if let Some(ref sess) = *sender {
                 let np = read_now_playing(sess);
-                let status = if np.as_ref().map(|n| n.is_playing).unwrap_or(false) {
-                    "playing"
-                } else {
-                    "paused "
-                };
-                let title = np.as_ref().map(|n| n.title.as_str()).unwrap_or("?");
-                eprintln!("[SMTC] [status] {aumid_pi} | {status} | {title}");
+                #[cfg(debug_assertions)]
+                {
+                    let aumid = sess.SourceAppUserModelId().map(|s| s.to_string()).unwrap_or_default();
+                    let status = if np.as_ref().map(|n| n.is_playing).unwrap_or(false) { "playing" } else { "paused " };
+                    let title = np.as_ref().map(|n| n.title.as_str()).unwrap_or("?");
+                    eprintln!("[SMTC] [status] {aumid} | {status} | {title}");
+                }
                 inner_pi.lock().unwrap().cached = np.clone();
                 if let Some(ref np) = np {
                     let _ = app_pi.emit("media:update", np);
@@ -415,12 +423,14 @@ fn make_locked_session<R: Runtime>(
         })),
     };
 
+    #[cfg(debug_assertions)]
     eprintln!("[SMTC] locked: {source_app_id} (score: {score})");
     LockedSession { source_app_id, score, session: session.clone(), _sub }
 }
 
-// ── Diagnostic logging ────────────────────────────────────────────────────────
+// ── Diagnostic logging (debug builds only) ───────────────────────────────────
 
+#[cfg(debug_assertions)]
 fn log_sessions(manager: &GlobalSystemMediaTransportControlsSessionManager) {
     use GlobalSystemMediaTransportControlsSessionPlaybackStatus as PS;
 
@@ -489,6 +499,7 @@ fn log_sessions(manager: &GlobalSystemMediaTransportControlsSessionManager) {
     eprintln!();
 }
 
+#[cfg(debug_assertions)]
 fn trunc(s: &str, max_chars: usize) -> String {
     let mut chars = s.chars();
     let head: String = chars.by_ref().take(max_chars.saturating_sub(1)).collect();

@@ -64,41 +64,64 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 **3레이어 배경 구조:**
 ```
 .jello-bg-base   어두운 반투명(rgba 8,8,18 / 0.72)        z-index: 0
-.jello-bg-art    앨범아트 div, blur(40px), opacity 0.4     z-index: 1
+.jello-bg-art    앨범아트 div, blur(20px), opacity 0.4     z-index: 1
 .jello-content   실제 콘텐츠                               z-index: 2
 ```
 
-**레이아웃:**
-- 왼쪽: 88×88px 정사각 앨범아트(border-radius 12px), 없으면 회색 폴백
-- 오른쪽 1행: 제목(흰색·굵음, 말줄임) + 아티스트(회색) | ⏮ ⏸(대형 핑크 원) ⏭
-- 오른쪽 2행: 진행바 (UI only, value=0 고정)
-- 오른쪽 3행: "0:00" + formatDuration(duration_secs) | 🔊 + 볼륨 슬라이더(onChange=console.log)
+**레이아웃 (레퍼런스 이미지 반영, 3:2 비율):**
+- 왼쪽: `--jello-width * 0.4` 정사각 앨범아트(border-radius 8px), 없으면 회색 폴백
+- 오른쪽 상단(`.jello-info`): ♪ 소스명(회색 9px) → 제목(흰색 11px 굵음) → 아티스트(회색 9px)
+- 오른쪽 중앙(`.jello-mid`): 진행바 → 시간(space-between) → ⏮ ⏸(28px 핑크 원) ⏭ (가운데정렬)
+- 오른쪽 하단(`.jello-volume`): 🔈 + flex 슬라이더 + 🔊
 
-**CSS 변수:** `.jello-box`에 `--art-blur`, `--art-opacity`, `--bg-opacity` 정의.
-`backdrop-filter` 미사용 (투명 Tauri 창에서 동작 안 함).
+**CSS 변수 (`--jello-width` 하나로 전체 크기 제어):**
+```css
+--jello-width: 240px;   /* 절대 px 고정 — vw 미사용 */
+height: calc(var(--jello-width) * 0.667);  /* 3:2 비율 자동계산 */
+--art-blur: 20px;
+--art-opacity: 0.4;
+--bg-opacity: 0.72;
+```
+박스 크기 조절은 `--jello-width` 하나만 바꾸면 됨. 사용자 UI 조절은 Phase 7 예정.
 
 **변경 파일:**
-- `src/App.tsx`: `<div className="overlay-root">` 래퍼 (position:fixed, inset:0, pointer-events:none)
-- `src/components/NowPlayingCard.tsx`: 전체 재설계
-- `src/App.css`: `.overlay-root`, `.jello-box` 등 CSS 추가
+- `src/App.tsx`: `<div className="overlay-root">` 래퍼
+- `src/components/NowPlayingCard.tsx`: 3-그룹 레이아웃 (jello-info / jello-mid / jello-volume)
+- `src/App.css`: 전체 jello 섹션
+
+### Phase 3-3 — 전체화면 투명창 + 클릭스루 완료
+
+**전체화면 투명창:**
+- `fit_to_monitor()`: `current_monitor()` → `primary_monitor()` → 1920×1080 폴백 순으로 해상도 감지
+- 하드코딩 없음 — 어떤 모니터에서도 자동 맞춤
+- `src-tauri/src/overlay/mod.rs`
+
+**클릭스루 (Rust 백그라운드 폴링, 50ms 주기):**
+- `GetCursorPos()` + `window.outer_position()` → 상대 좌표 계산
+- `HitRect`(프론트에서 전달)와 비교 → 상태 변화 시만 `set_ignore_cursor_events(!inside)` 호출
+- `hit_rect = None`(초기)이면 클릭스루 OFF(최소한 박스는 항상 잡힘)
+- `Arc<OverlayState>` manage: Tauri 상태를 폴링 스레드에 공유하는 방식
+
+**프론트 → Rust 히트렉트 전달:**
+- `NowPlayingCard`의 `useEffect([np !== null])`: 박스 `getBoundingClientRect()` → `invoke("set_hit_rect")`
+- idle↔active 전환 시 박스 크기가 바뀌므로 재호출 필요 → `[np !== null]` 의존성
+
+**Ctrl+Shift+Q 안전 종료:**
+- `tauri-plugin-global-shortcut`으로 전역 단축키 등록
+- 클릭스루 켜진 상태에서도 앱 종료 가능
+
+**변경 파일:**
+- `src-tauri/src/overlay/mod.rs`: `fit_to_monitor`, `HitRect`, `OverlayState`
+- `src-tauri/src/commands.rs`: `set_hit_rect` command
+- `src-tauri/src/lib.rs`: 전체화면 설정, SMTC 스레드, 폴링 스레드, 단축키
+- `src-tauri/Cargo.toml`: `tauri-plugin-global-shortcut`, `Win32_UI_WindowsAndMessaging` feature
 
 ---
 
-## 다음 작업 — Phase 3-3단계: 클릭스루
+## 다음 작업 — Phase 3-4: 투명도 조절 (미완)
 
-**목표:** 빈 영역은 마우스 클릭이 뒤 창으로 통과, 젤리박스 위에서만 입력 받기.
-
-**방식:**
-- CSS 쪽은 이미 완료: `.overlay-root { pointer-events: none }`, `.jello-box { pointer-events: auto }`
-- Rust 쪽 추가 필요: `set_ignore_cursor_events(true)`로 OS 레벨 클릭스루 활성화
-  - 단, 젤리박스 위로 마우스가 올라오면 `set_ignore_cursor_events(false)`로 전환해야 클릭이 먹힘
-  - 방법: 프론트에서 `mouseenter`/`mouseleave` 이벤트 → `invoke("set_click_through", { enable })` Tauri command
-
-**구현할 파일:**
-1. `src-tauri/src/overlay/mod.rs` (또는 `commands.rs`): `set_click_through(enable: bool, window)` command
-2. `src/App.tsx` 또는 `src/components/NowPlayingCard.tsx`: mouseenter/mouseleave → invoke
-
-그다음 **Phase 3-4단계**: 투명도 슬라이더 (0~100%, 실시간 적용).
+박스 전체 투명도를 실시간으로 조절하는 슬라이더/설정.
+`--bg-opacity`, `--art-opacity` CSS 변수 + Tauri command or 프론트 상태로 제어.
 
 ---
 
@@ -106,9 +129,11 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 
 | 항목 | 상태 | 비고 |
 |---|---|---|
-| 박스 모양·색감 디테일 다듬기 | 미완 | 현재 기능만 됨, 레퍼런스 이미지와 세부 차이 있음 |
+| Phase 3-4 투명도 조절 | 미완 | `--bg-opacity` 변수는 준비됨 |
+| 박스 모양·색감 디테일 다듬기 | 미완 | 기능 우선, 레퍼런스와 세부 차이 있음 |
 | 진행바 실시간 위치 | 보류 | SMTC에서 현재 재생 위치 이벤트 미지원 |
 | 볼륨 슬라이더 기능 연결 | Phase 5 | Core Audio — `IAudioSessionManager2`/`ISimpleAudioVolume` |
+| 박스 크기 사용자 조절 UI | Phase 7 | `--jello-width` 변수 준비됨 |
 | 크롬 다중 탭 | Known Limitation | 브라우저 확장 없이 탭 구분 불가 |
 | 곡 스킵 시 깜빡임 | Known Limitation | Phase 7 세션 전환 디바운스로 개선 예정 |
 | Spotify AUMID | 확인 필요 | 실물 기기에서 SMTC 로그로 확인 후 `KNOWN_MUSIC_APPS` 수정 |
@@ -117,5 +142,5 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 
 ## 이후 단계 순서
 
-Phase 3-3 클릭스루 → Phase 3-4 투명도 조절 → **Phase 4 젤리 물리** (드래그·던지기·벽 충돌) →
+Phase 3-4 투명도 조절 → **Phase 4 젤리 물리** (드래그·던지기·벽 충돌·일렁임) →
 Phase 5 볼륨(Core Audio) → 진행바 실시간(Phase 5 이후) → Phase 6 Discord RPC → Phase 7 설정·모드

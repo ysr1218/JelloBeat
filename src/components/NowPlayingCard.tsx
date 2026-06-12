@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNowPlaying } from "../hooks/useNowPlaying";
 
@@ -8,13 +9,38 @@ function formatDuration(secs: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function simplifySource(id: string | null | undefined): string {
+  if (!id) return "Music";
+  // Strip path separators and take the last segment
+  const base = id.replace(/\\/g, "/").split("/").pop() ?? id;
+  // Remove .exe extension
+  const name = base.replace(/\.exe$/i, "");
+  // Collapse GUID-like strings
+  if (/^\{[0-9A-F-]{36}\}$/i.test(name)) return "Browser";
+  // Strip store app suffix (e.g. "MSEdge_8wekyb3d8bbwe!App" → "MSEdge")
+  return name.split(/[_!]/)[0];
+}
+
 export function NowPlayingCard() {
   const { np, thumbnailUrl } = useNowPlaying();
   const transport = (cmd: string) => invoke("transport", { cmd }).catch(console.error);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    invoke("set_hit_rect", {
+      x: Math.round(r.left),
+      y: Math.round(r.top),
+      w: Math.round(r.width),
+      h: Math.round(r.height),
+    }).catch(console.error);
+  }, [np !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!np) {
     return (
-      <div className="jello-box jello-idle">
+      <div className="jello-box jello-idle" ref={boxRef}>
         <div className="jello-bg-base" />
         <div className="jello-content">
           <p className="jello-idle-text">No media playing</p>
@@ -24,7 +50,7 @@ export function NowPlayingCard() {
   }
 
   return (
-    <div className="jello-box">
+    <div className="jello-box" ref={boxRef}>
       <div className="jello-bg-base" />
       {thumbnailUrl && (
         <div className="jello-bg-art" style={{ backgroundImage: `url(${thumbnailUrl})` }} />
@@ -36,10 +62,21 @@ export function NowPlayingCard() {
             : <div className="jello-art jello-art-fallback" />}
         </div>
         <div className="jello-right">
-          <div className="jello-row-top">
-            <div className="jello-meta">
-              <p className="jello-title">{np.title || "Unknown title"}</p>
-              <p className="jello-artist">{np.artist || "Unknown artist"}</p>
+          <div className="jello-info">
+            <p className="jello-source">♪ {simplifySource(np.source_app_id)}</p>
+            <p className="jello-title">{np.title || "Unknown title"}</p>
+            <p className="jello-artist">{np.artist || "Unknown artist"}</p>
+          </div>
+          <div className="jello-mid">
+            <input
+              type="range"
+              className="jello-progress"
+              min={0} max={100} value={0}
+              onChange={() => {}}
+            />
+            <div className="jello-time">
+              <span>0:00</span>
+              <span>{formatDuration(np.duration_secs)}</span>
             </div>
             <div className="jello-transport">
               <button className="jello-btn-skip" onClick={() => transport("SkipPrevious")}>⏮</button>
@@ -49,26 +86,15 @@ export function NowPlayingCard() {
               <button className="jello-btn-skip" onClick={() => transport("SkipNext")}>⏭</button>
             </div>
           </div>
-          <input
-            type="range"
-            className="jello-progress"
-            min={0} max={100} value={0}
-            onChange={() => {}}
-          />
-          <div className="jello-row-bottom">
-            <div className="jello-time">
-              <span>0:00</span>
-              <span>{formatDuration(np.duration_secs)}</span>
-            </div>
-            <div className="jello-volume">
-              <span className="jello-vol-icon">🔊</span>
-              <input
-                type="range"
-                className="jello-volume-slider"
-                min={0} max={100} defaultValue={80}
-                onChange={(e) => console.log("volume:", e.target.value)}
-              />
-            </div>
+          <div className="jello-volume">
+            <span className="jello-vol-icon">🔈</span>
+            <input
+              type="range"
+              className="jello-volume-slider"
+              min={0} max={100} defaultValue={80}
+              onChange={(e) => console.log("volume:", e.target.value)}
+            />
+            <span className="jello-vol-icon">🔊</span>
           </div>
         </div>
       </div>

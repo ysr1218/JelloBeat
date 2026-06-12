@@ -32,3 +32,14 @@ pub fn transport(
 pub fn transport(_cmd: crate::media::TransportCommand) -> Result<(), String> {
     Err("transport not supported on this platform".to_string())
 }
+
+#[tauri::command]
+pub fn set_hit_rect(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    state: tauri::State<std::sync::Arc<crate::overlay::OverlayState>>,
+) {
+    *state.hit_rect.lock().unwrap() = Some(crate::overlay::HitRect { x, y, w, h });
+}

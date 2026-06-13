@@ -43,8 +43,7 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 
 #### 진단 로그
 
-`[SMTC] [props]` / `[SMTC] [status]` / 세션 테이블 출력은 **디버그 빌드에서만** 동작.
-`#[cfg(debug_assertions)]` 게이트.
+`[SMTC]` 로그는 디버그 빌드에서만 동작. `#[cfg(debug_assertions)]` 게이트.
 
 ### Phase 2 — 재생 제어 완료
 
@@ -52,95 +51,100 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 - Tauri command: `transport(cmd)` → `commands.rs`
 - UI: ⏮ ▶/⏸ ⏭ 버튼 → transport() 연결
 
-### Phase 3-1 — 투명·무테·항상위 창 완료
+### Phase 3 — 오버레이 창 완료
 
-- `tauri.conf.json`: `transparent: true`, `decorations: false`, `alwaysOnTop: true`
-- `App.css`: `:root`, `body` background를 `transparent`로 설정
+**3-1** 투명·무테·항상위: `tauri.conf.json` + `App.css` background transparent
 
-### Phase 3-2 — 젤리박스 레이아웃 완료 (동작 확인됨)
+**3-2** 젤리박스 레이아웃 (레퍼런스 이미지 반영, 3:2 비율):
+- `--jello-width: 240px` 절대 px 고정, `height: calc(--jello-width * 0.667)`
+- 3레이어 배경: `jello-bg-base` / `jello-bg-art(blur)` / `jello-content`
+- 오른쪽 3그룹: `jello-info`(소스+제목+아티스트) / `jello-mid`(진행바+시간+버튼) / `jello-volume`(🔈+슬라이더+🔊)
 
-가로형 글래스모피즘 박스, 화면 좌하단 고정.
+**3-3** 전체화면 투명창 + 클릭스루:
+- `GetCursorPos()` 50ms 폴링 + `set_ignore_cursor_events` 토글
+- `Arc<OverlayState>` → `hit_rect: Mutex<Option<HitRect>>` 스레드 공유
+- `hit_rect=None` 초기에는 클릭스루 OFF
+- Ctrl+Shift+Q 전역 단축키 안전 종료 (`tauri-plugin-global-shortcut`)
 
-**3레이어 배경 구조:**
-```
-.jello-bg-base   어두운 반투명(rgba 8,8,18 / 0.72)        z-index: 0
-.jello-bg-art    앨범아트 div, blur(20px), opacity 0.4     z-index: 1
-.jello-content   실제 콘텐츠                               z-index: 2
-```
+### Phase 4-1 — 기본 드래그 완료
 
-**레이아웃 (레퍼런스 이미지 반영, 3:2 비율):**
-- 왼쪽: `--jello-width * 0.4` 정사각 앨범아트(border-radius 8px), 없으면 회색 폴백
-- 오른쪽 상단(`.jello-info`): ♪ 소스명(회색 9px) → 제목(흰색 11px 굵음) → 아티스트(회색 9px)
-- 오른쪽 중앙(`.jello-mid`): 진행바 → 시간(space-between) → ⏮ ⏸(28px 핑크 원) ⏭ (가운데정렬)
-- 오른쪽 하단(`.jello-volume`): 🔈 + flex 슬라이더 + 🔊
+**구조:** React `useState` 대신 `useRef` + DOM 직접 조작 (60fps RAF용)
 
-**CSS 변수 (`--jello-width` 하나로 전체 크기 제어):**
-```css
---jello-width: 240px;   /* 절대 px 고정 — vw 미사용 */
-height: calc(var(--jello-width) * 0.667);  /* 3:2 비율 자동계산 */
---art-blur: 20px;
---art-opacity: 0.4;
---bg-opacity: 0.72;
-```
-박스 크기 조절은 `--jello-width` 하나만 바꾸면 됨. 사용자 UI 조절은 Phase 7 예정.
+**신규 파일:** `src/hooks/useJelloPhysics.ts`
+- `useLayoutEffect`로 초기 위치 좌하단(x=24, y=innerHeight-boxH-24) 설정 — flash 없음
+- `onSettleRef` 패턴: onSettle 콜백을 ref에 저장해 effect 재부착 없이 최신값 사용
+- `onMouseDown`: `cancelAnimationFrame(rafId.current)` 호출 → 날아가는 박스 잡으면 물리 즉시 정지
+- window mousemove/mouseup 리스너로 드래그 처리
+- `rafId` ref 준비 완료 (Step 4-2 관성 구현 예정)
 
-**변경 파일:**
-- `src/App.tsx`: `<div className="overlay-root">` 래퍼
-- `src/components/NowPlayingCard.tsx`: 3-그룹 레이아웃 (jello-info / jello-mid / jello-volume)
-- `src/App.css`: 전체 jello 섹션
+**`NowPlayingCard.tsx` 변경:**
+- `updateHitRect`: `useCallback([], [])` 안정 콜백으로 분리
+- `useJelloPhysics(boxRef, updateHitRect)` 연결
+- idle / active 두 분기 모두 `onMouseDown` 연결
 
-### Phase 3-3 — 전체화면 투명창 + 클릭스루 완료
+**`App.css` 변경:**
+- `.overlay-root`: flex/padding 제거 (박스 absolute 포지셔닝으로 전환)
+- `.jello-box`: `position: absolute`, `cursor: grab`
+- `.jello-box.dragging`: `cursor: grabbing`
 
-**전체화면 투명창:**
-- `fit_to_monitor()`: `current_monitor()` → `primary_monitor()` → 1920×1080 폴백 순으로 해상도 감지
-- 하드코딩 없음 — 어떤 모니터에서도 자동 맞춤
-- `src-tauri/src/overlay/mod.rs`
+**hit_rect 갱신 시점:** 드래그 종료(onUp) + idle↔active 전환. 매 프레임 IPC 불필요.
 
-**클릭스루 (Rust 백그라운드 폴링, 50ms 주기):**
-- `GetCursorPos()` + `window.outer_position()` → 상대 좌표 계산
-- `HitRect`(프론트에서 전달)와 비교 → 상태 변화 시만 `set_ignore_cursor_events(!inside)` 호출
-- `hit_rect = None`(초기)이면 클릭스루 OFF(최소한 박스는 항상 잡힘)
-- `Arc<OverlayState>` manage: Tauri 상태를 폴링 스레드에 공유하는 방식
+### Phase 4-M1 — 가상 데스크탑 전체 창 확장 완료 (멀티모니터 대응)
 
-**프론트 → Rust 히트렉트 전달:**
-- `NowPlayingCard`의 `useEffect([np !== null])`: 박스 `getBoundingClientRect()` → `invoke("set_hit_rect")`
-- idle↔active 전환 시 박스 크기가 바뀌므로 재호출 필요 → `[np !== null]` 의존성
+**문제:** 기존 `fit_to_monitor()`는 창을 한 모니터 크기로만 설정 → 박스를 다른 모니터로 드래그하면 오버레이 밖으로 나가 사라짐.
 
-**Ctrl+Shift+Q 안전 종료:**
-- `tauri-plugin-global-shortcut`으로 전역 단축키 등록
-- 클릭스루 켜진 상태에서도 앱 종료 가능
+**해결:** `fit_to_virtual_desktop()` 신규 추가 (`src-tauri/src/overlay/mod.rs`)
+- `available_monitors()`로 전체 모니터 목록 순회
+- `min(pos.x/y)` ~ `max(pos.x+w / pos.y+h)` 로 가상 데스크탑 bounding box 계산
+- 창 위치 → `(min_x, min_y)`, 창 크기 → `(max_x-min_x) × (max_y-min_y)` (물리 픽셀)
+- 실패 시 `fit_to_monitor()` fallback 유지
+- `lib.rs`에서 호출을 `fit_to_virtual_desktop(&main_win)`으로 교체
 
-**변경 파일:**
-- `src-tauri/src/overlay/mod.rs`: `fit_to_monitor`, `HitRect`, `OverlayState`
-- `src-tauri/src/commands.rs`: `set_hit_rect` command
-- `src-tauri/src/lib.rs`: 전체화면 설정, SMTC 스레드, 폴링 스레드, 단축키
-- `src-tauri/Cargo.toml`: `tauri-plugin-global-shortcut`, `Win32_UI_WindowsAndMessaging` feature
+**내 환경 (확인 완료):** 세로 배치 1920×2160·배율 1.0  
+코드는 `available_monitors()` 계산값 기반 — 음수 좌표·좌우 배치·다중 모니터 구조적 대응.
+
+**DPI 주의:** `Monitor::size()`는 물리 픽셀 반환이므로 창 크기 계산은 scale 무관.
+혼합 DPI 환경(예: 1.0 + 1.5)에서 CSS 픽셀 공간 처리는 미검증 — 별도 Phase 예정.
+
+**모니터 진단 로그** (`[MONITOR]`): `lib.rs` setup 블록에 항상 출력, 설계 검증용.
 
 ---
 
-## 다음 작업 — Phase 3-4: 투명도 조절 (미완)
+## 다음 작업 — Phase 4 계속
 
-박스 전체 투명도를 실시간으로 조절하는 슬라이더/설정.
-`--bg-opacity`, `--art-opacity` CSS 변수 + Tauri command or 프론트 상태로 제어.
+### Step 4-2: 관성 던지기 + 감속
+`useJelloPhysics.ts`에 추가:
+- 드래그 중 포인터 히스토리(최대 5개) 기록
+- mouseup 시 속도 계산 → RAF 루프 시작
+- DAMPING=0.92, STOP_THRESH=0.4
+- **보완:** `onMouseDown` 진입 시 `vel = {0,0}` 초기화 (cancelAnimationFrame은 이미 있음)
+- **보완:** 물리 루프 중 hit_rect를 100ms 주기(약 N프레임마다)로도 갱신 → 날아가는 박스도 잡을 수 있게
+
+### Step 4-3: 벽 충돌 + 반사
+- 경계는 `window.innerWidth × window.innerHeight` (가상 데스크탑 전체 기준 — 창이 이미 전체 커버)
+- RESTITUTION=0.55, 각 축별 속도 반전
+
+### Step 4-4: 스쿼시 + 착지 후 흔들림
+- `@keyframes jello-squash-h/v` CSS 추가 (0.45s ease-out)
+- `triggerBounce(axis)`: 클래스 제거 → reflow(`void offsetWidth`) → 클래스 추가
 
 ---
 
-## 미완/후순위 디테일
+## 미완/후순위
 
 | 항목 | 상태 | 비고 |
 |---|---|---|
-| Phase 3-4 투명도 조절 | 미완 | `--bg-opacity` 변수는 준비됨 |
-| 박스 모양·색감 디테일 다듬기 | 미완 | 기능 우선, 레퍼런스와 세부 차이 있음 |
-| 진행바 실시간 위치 | 보류 | SMTC에서 현재 재생 위치 이벤트 미지원 |
-| 볼륨 슬라이더 기능 연결 | Phase 5 | Core Audio — `IAudioSessionManager2`/`ISimpleAudioVolume` |
-| 박스 크기 사용자 조절 UI | Phase 7 | `--jello-width` 변수 준비됨 |
-| 크롬 다중 탭 | Known Limitation | 브라우저 확장 없이 탭 구분 불가 |
-| 곡 스킵 시 깜빡임 | Known Limitation | Phase 7 세션 전환 디바운스로 개선 예정 |
-| Spotify AUMID | 확인 필요 | 실물 기기에서 SMTC 로그로 확인 후 `KNOWN_MUSIC_APPS` 수정 |
+| Phase 3-4 투명도 조절 | 미완 | `--bg-opacity` 변수 준비됨 |
+| 진행바 실시간 위치 | 보류 | SMTC 미지원 |
+| 볼륨 슬라이더 기능 | Phase 5 | Core Audio |
+| 박스 크기 사용자 조절 | Phase 7 | `--jello-width` 준비됨 |
+| 혼합 DPI 멀티모니터 | 미검증 | CSS 픽셀 공간 처리 필요 |
+| Spotify AUMID | 확인 필요 | 실물 로그로 확인 후 수정 |
+| 곡 스킵 깜빡임 | Known Limitation | Phase 7 디바운스로 개선 예정 |
 
 ---
 
-## 이후 단계 순서
+## 이후 단계
 
-Phase 3-4 투명도 조절 → **Phase 4 젤리 물리** (드래그·던지기·벽 충돌·일렁임) →
-Phase 5 볼륨(Core Audio) → 진행바 실시간(Phase 5 이후) → Phase 6 Discord RPC → Phase 7 설정·모드
+4-2 관성 → 4-3 벽충돌(가상 데스크탑 경계) → 4-4 스쿼시+흔들림 →
+Phase 5 볼륨(Core Audio) → Phase 6 Discord RPC → Phase 7 설정·모드·OBS

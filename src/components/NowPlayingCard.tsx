@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNowPlaying } from "../hooks/useNowPlaying";
+import { useJelloPhysics } from "../hooks/useJelloPhysics";
 
 function formatDuration(secs: number | null): string {
   if (!secs) return "--:--";
@@ -11,13 +12,9 @@ function formatDuration(secs: number | null): string {
 
 function simplifySource(id: string | null | undefined): string {
   if (!id) return "Music";
-  // Strip path separators and take the last segment
   const base = id.replace(/\\/g, "/").split("/").pop() ?? id;
-  // Remove .exe extension
   const name = base.replace(/\.exe$/i, "");
-  // Collapse GUID-like strings
   if (/^\{[0-9A-F-]{36}\}$/i.test(name)) return "Browser";
-  // Strip store app suffix (e.g. "MSEdge_8wekyb3d8bbwe!App" → "MSEdge")
   return name.split(/[_!]/)[0];
 }
 
@@ -26,7 +23,8 @@ export function NowPlayingCard() {
   const transport = (cmd: string) => invoke("transport", { cmd }).catch(console.error);
   const boxRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Stable callback: report current bounding rect to Rust for hit-testing.
+  const updateHitRect = useCallback(() => {
     const el = boxRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -36,11 +34,18 @@ export function NowPlayingCard() {
       w: Math.round(r.width),
       h: Math.round(r.height),
     }).catch(console.error);
-  }, [np !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // boxRef is stable
+
+  // Re-report hit rect when idle↔active state changes (box height differs).
+  useEffect(() => {
+    updateHitRect();
+  }, [np !== null, updateHitRect]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { onMouseDown } = useJelloPhysics(boxRef, updateHitRect);
 
   if (!np) {
     return (
-      <div className="jello-box jello-idle" ref={boxRef}>
+      <div className="jello-box jello-idle" ref={boxRef} onMouseDown={onMouseDown}>
         <div className="jello-bg-base" />
         <div className="jello-content">
           <p className="jello-idle-text">No media playing</p>
@@ -50,7 +55,7 @@ export function NowPlayingCard() {
   }
 
   return (
-    <div className="jello-box" ref={boxRef}>
+    <div className="jello-box" ref={boxRef} onMouseDown={onMouseDown}>
       <div className="jello-bg-base" />
       {thumbnailUrl && (
         <div className="jello-bg-art" style={{ backgroundImage: `url(${thumbnailUrl})` }} />

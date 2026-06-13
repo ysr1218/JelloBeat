@@ -1,14 +1,54 @@
 use std::sync::Mutex;
 
-/// Resize and reposition the window to cover the monitor it currently lives on.
+/// Expand the window to cover the entire virtual desktop (all connected monitors).
 ///
-/// Resolution detection order:
-///   1. current_monitor() — accurate after the window has a screen position
-///   2. primary_monitor() — reliable fallback on first launch (window not yet placed)
-///   3. hardcoded 1920×1080 at (0,0) — last resort when no monitor info is available
+/// Computes the bounding box of every monitor's physical-pixel rectangle, then sets
+/// the window position to the top-left origin and size to the full extent.
 ///
-/// Call this once at startup, and again whenever the window is moved to another monitor
-/// (Phase 7+: listen for WindowEvent::Moved and re-call).
+/// All values are in physical pixels — Tauri's set_size / set_position accept these
+/// directly via PhysicalSize / PhysicalPosition.
+///
+/// DPI note: Monitor::size() already returns physical pixels regardless of scale_factor,
+/// so the bounding-box arithmetic is scale-agnostic for the window itself. Mixed-DPI
+/// handling inside the webview (CSS pixel space) is left for a future phase.
+///
+/// Fallback chain when available_monitors() fails or returns empty:
+///   fit_to_monitor() → current_monitor() → primary_monitor() → 1920×1080 at (0,0)
+pub fn fit_to_virtual_desktop(window: &tauri::WebviewWindow) {
+    use tauri::{PhysicalPosition, PhysicalSize};
+
+    let monitors = match window.available_monitors() {
+        Ok(m) if !m.is_empty() => m,
+        _ => {
+            fit_to_monitor(window);
+            return;
+        }
+    };
+
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for m in &monitors {
+        let pos = m.position();
+        let sz = m.size();
+        min_x = min_x.min(pos.x);
+        min_y = min_y.min(pos.y);
+        max_x = max_x.max(pos.x + sz.width as i32);
+        max_y = max_y.max(pos.y + sz.height as i32);
+    }
+
+    let _ = window.set_size(PhysicalSize::new(
+        (max_x - min_x) as u32,
+        (max_y - min_y) as u32,
+    ));
+    let _ = window.set_position(PhysicalPosition::new(min_x, min_y));
+}
+
+/// Resize the window to cover only the monitor it currently lives on.
+/// Used as a fallback inside fit_to_virtual_desktop and may be re-used
+/// for single-monitor configurations in the future.
 pub fn fit_to_monitor(window: &tauri::WebviewWindow) {
     use tauri::{PhysicalPosition, PhysicalSize};
     let monitor = window

@@ -27,7 +27,41 @@ pub fn run() {
 
             // Resize window to cover the current monitor (no hardcoded resolution)
             let main_win = app.get_webview_window("main").unwrap();
-            overlay::fit_to_monitor(&main_win);
+            overlay::fit_to_virtual_desktop(&main_win);
+
+            // ── Monitor diagnostics (always-on, for multi-monitor design) ──
+            {
+                match main_win.available_monitors() {
+                    Ok(monitors) => {
+                        eprintln!("[MONITOR] {} monitor(s) detected:", monitors.len());
+                        let mut min_x = i32::MAX;
+                        let mut min_y = i32::MAX;
+                        let mut max_x = i32::MIN;
+                        let mut max_y = i32::MIN;
+                        for (i, m) in monitors.iter().enumerate() {
+                            let pos = m.position();
+                            let sz  = m.size();
+                            let sf  = m.scale_factor();
+                            eprintln!(
+                                "[MONITOR]   [{i}] name={:?}  pos=({}, {})  size={}x{}  scale={:.2}",
+                                m.name(), pos.x, pos.y, sz.width, sz.height, sf
+                            );
+                            min_x = min_x.min(pos.x);
+                            min_y = min_y.min(pos.y);
+                            max_x = max_x.max(pos.x + sz.width as i32);
+                            max_y = max_y.max(pos.y + sz.height as i32);
+                        }
+                        if !monitors.is_empty() {
+                            eprintln!(
+                                "[MONITOR] virtual desktop: origin=({min_x}, {min_y})  size={}x{}",
+                                max_x - min_x,
+                                max_y - min_y
+                            );
+                        }
+                    }
+                    Err(e) => eprintln!("[MONITOR] available_monitors() failed: {e}"),
+                }
+            }
 
             #[cfg(windows)]
             {

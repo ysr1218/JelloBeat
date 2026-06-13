@@ -124,9 +124,6 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  display: flex;
-  align-items: flex-end;
-  padding: 24px;
 }
 
 /* ── Jello Box ── */
@@ -140,15 +137,20 @@ body {
   --art-blur: 20px;
   --art-opacity: 0.4;
   --bg-opacity: 0.72;
-  position: relative;
+  position: absolute;
   display: inline-flex;
   width: var(--jello-width);
+  cursor: grab;
   height: calc(var(--jello-width) * 0.667);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   user-select: none;
   pointer-events: auto;
+}
+
+.jello-box.dragging {
+  cursor: grabbing;
 }
 
 .jello-bg-base {

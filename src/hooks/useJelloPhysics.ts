@@ -1,12 +1,19 @@
 import { RefObject, useEffect, useLayoutEffect, useRef } from "react";
 
+// ── 물리 상수 ────────────────────────────────────────────────────────────────
 const DAMPING            = 0.94;  // 올릴수록 오래 미끄러짐 (0→즉시정지, 1→영원히)
 const RESTITUTION        = 0.60;  // 올릴수록 벽에서 탱탱하게 튐 (0→흡수, 1→손실없음)
 const STOP_THRESH        = 0.40;  // 낮출수록 더 오래 굴러가다 멈춤 (px/frame)
 const THROW_MULTIPLIER   = 40;    // 올릴수록 살짝만 던져도 멀리 날아감 (포인터 속도 → px/frame 배율)
-const MAX_SPEED          = 130;   // 올릴수록 더 빠르게 날아감 — 단일 프레임 최대 이동 px (너무 높으면 벽 통과)
+const MAX_SPEED          = 150;   // 올릴수록 더 빠르게 날아감 (너무 높으면 벽 통과)
 const HIT_RECT_MS        = 100;   // 물리 중 hit_rect 갱신 주기 (ms)
-const SQUASH_DURATION_MS = 800;   // 찌그러짐 지속시간 (ms) — 길수록 오래 출렁 (강도는 App.css --sq-compress/--sq-stretch)
+
+// ── 스쿼시 스프링 상수 ───────────────────────────────────────────────────────
+const SQUASH_STIFFNESS   = 0.25;  // 올릴수록 빠르게 복원 (스프링 강도)
+const SQUASH_DAMPING     = 0.05;  // 올릴수록 빠르게 잦아듦 (감쇠)
+const SQUASH_IMPACT      = 0.004; // 올릴수록 충돌 시 더 많이 찌그러짐 (속도→찌그러짐 변환계수)
+const SQUASH_COUPLE      = 0.5;   // 충돌축 반대축 늘어남 비율 (0→없음, 1→동등)
+const SQUASH_STOP        = 0.002; // 이 미만이면 스프링 정지
 
 export function useJelloPhysics(
   boxRef: RefObject<HTMLDivElement | null>,
@@ -24,6 +31,13 @@ export function useJelloPhysics(
   const rafId = useRef(0);
   const lastHitRectMs = useRef(0);
 
+  // Squash spring state — offsets from scale(1,1), converge to 0
+  const sqX = useRef(0);
+  const sqY = useRef(0);
+  const sqVX = useRef(0);
+  const sqVY = useRef(0);
+  const squashRafId = useRef(0); // 0 = not running (sentinel)
+
   // Set initial position (bottom-left) before first paint — no flash.
   useLayoutEffect(() => {
     const el = boxRef.current;
@@ -38,16 +52,47 @@ export function useJelloPhysics(
     onSettleRef.current();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Squash animation ────────────────────────────────────────────────────
-  // Targets the inner .jello-squash-wrap so transform(scale) never touches
-  // the outer .jello-box that owns left/top positioning.
-  function triggerBounce(axis: 'h' | 'v') {
-    const wrap = boxRef.current?.querySelector<HTMLDivElement>('.jello-squash-wrap');
-    if (!wrap) return;
-    wrap.classList.remove('jello-squash-h', 'jello-squash-v');
-    void wrap.offsetWidth; // reflow: restart animation from keyframe 0%
-    wrap.classList.add(axis === 'h' ? 'jello-squash-h' : 'jello-squash-v');
-    wrap.style.animationDuration = SQUASH_DURATION_MS + 'ms';
+  // ── Squash spring ────────────────────────────────────────────────────────
+  function squashTick() {
+    sqVX.current += -SQUASH_STIFFNESS * sqX.current - SQUASH_DAMPING * sqVX.current;
+    sqVY.current += -SQUASH_STIFFNESS * sqY.current - SQUASH_DAMPING * sqVY.current;
+    sqX.current += sqVX.current;
+    sqY.current += sqVY.current;
+
+    const wrap = boxRef.current?.querySelector<HTMLDivElement>(".jello-squash-wrap");
+    if (wrap) {
+      wrap.style.transform = `scaleX(${1 + sqX.current}) scaleY(${1 + sqY.current})`;
+      const mag = Math.abs(sqX.current) + Math.abs(sqY.current);
+      wrap.style.borderRadius = (12 + mag * 30) + "px";
+    }
+
+    const settled =
+      Math.abs(sqX.current)  < SQUASH_STOP && Math.abs(sqY.current)  < SQUASH_STOP &&
+      Math.abs(sqVX.current) < SQUASH_STOP && Math.abs(sqVY.current) < SQUASH_STOP;
+
+    if (!settled) {
+      squashRafId.current = requestAnimationFrame(squashTick);
+    } else {
+      squashRafId.current = 0;
+      if (wrap) { wrap.style.transform = ""; wrap.style.borderRadius = ""; }
+    }
+  }
+
+  // Add velocity impulse to the squash spring. Accumulates on already-oscillating state.
+  function addSquashImpulse(axis: "h" | "v", impact: number) {
+    const delta = impact * SQUASH_IMPACT;
+    if (axis === "h") { sqX.current -= delta; sqY.current += delta * SQUASH_COUPLE; }
+    else              { sqY.current -= delta; sqX.current += delta * SQUASH_COUPLE; }
+    if (squashRafId.current === 0)
+      squashRafId.current = requestAnimationFrame(squashTick);
+  }
+
+  function resetSquash() {
+    cancelAnimationFrame(squashRafId.current);
+    squashRafId.current = 0;
+    sqX.current = sqY.current = sqVX.current = sqVY.current = 0;
+    const wrap = boxRef.current?.querySelector<HTMLDivElement>(".jello-squash-wrap");
+    if (wrap) { wrap.style.transform = ""; wrap.style.borderRadius = ""; }
   }
 
   // ── Physics tick ────────────────────────────────────────────────────────
@@ -61,15 +106,34 @@ export function useJelloPhysics(
     if (!el) return;
 
     // Wall collision — bounds are the full virtual desktop (window spans all monitors).
-    // Math.abs() on the reflected component guarantees velocity points away from the wall
-    // even if floating-point drift pushed pos slightly past the boundary.
+    // Capture impact speed before RESTITUTION so squash impulse reflects true collision force.
     const maxX = window.innerWidth  - el.offsetWidth;
     const maxY = window.innerHeight - el.offsetHeight;
 
-    if (pos.current.x < 0)    { pos.current.x = 0;    vel.current.x =  Math.abs(vel.current.x) * RESTITUTION; triggerBounce('h'); }
-    if (pos.current.x > maxX) { pos.current.x = maxX; vel.current.x = -Math.abs(vel.current.x) * RESTITUTION; triggerBounce('h'); }
-    if (pos.current.y < 0)    { pos.current.y = 0;    vel.current.y =  Math.abs(vel.current.y) * RESTITUTION; triggerBounce('v'); }
-    if (pos.current.y > maxY) { pos.current.y = maxY; vel.current.y = -Math.abs(vel.current.y) * RESTITUTION; triggerBounce('v'); }
+    if (pos.current.x < 0) {
+      pos.current.x = 0;
+      const impact = Math.abs(vel.current.x);
+      vel.current.x = impact * RESTITUTION;
+      addSquashImpulse("h", impact);
+    }
+    if (pos.current.x > maxX) {
+      pos.current.x = maxX;
+      const impact = Math.abs(vel.current.x);
+      vel.current.x = -impact * RESTITUTION;
+      addSquashImpulse("h", impact);
+    }
+    if (pos.current.y < 0) {
+      pos.current.y = 0;
+      const impact = Math.abs(vel.current.y);
+      vel.current.y = impact * RESTITUTION;
+      addSquashImpulse("v", impact);
+    }
+    if (pos.current.y > maxY) {
+      pos.current.y = maxY;
+      const impact = Math.abs(vel.current.y);
+      vel.current.y = -impact * RESTITUTION;
+      addSquashImpulse("v", impact);
+    }
 
     el.style.left = pos.current.x + "px";
     el.style.top  = pos.current.y + "px";
@@ -92,6 +156,7 @@ export function useJelloPhysics(
   // ── Mouse down ──────────────────────────────────────────────────────────
   function onMouseDown(e: React.MouseEvent) {
     cancelAnimationFrame(rafId.current);
+    resetSquash();
     vel.current = { x: 0, y: 0 };
     ptrHistory.current = [];
 
@@ -151,6 +216,7 @@ export function useJelloPhysics(
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       cancelAnimationFrame(rafId.current);
+      cancelAnimationFrame(squashRafId.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

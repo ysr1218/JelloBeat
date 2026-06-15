@@ -124,9 +124,26 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 - 경계는 `window.innerWidth × window.innerHeight` (가상 데스크탑 전체 기준 — 창이 이미 전체 커버)
 - RESTITUTION=0.55, 각 축별 속도 반전
 
-### Step 4-4: 스쿼시 + 착지 후 흔들림
-- `@keyframes jello-squash-h/v` CSS 추가 (0.45s ease-out)
-- `triggerBounce(axis)`: 클래스 제거 → reflow(`void offsetWidth`) → 클래스 추가
+### Step 4-4: 스프링 기반 젤리 스쿼시 ✓ (CSS 방식에서 물리 스프링으로 교체)
+
+**구현:** `useJelloPhysics.ts` — `squashTick` / `addSquashImpulse` / `resetSquash`
+
+- 찌그러짐 상태 `(sqX, sqY)` + 속도 `(sqVX, sqVY)` → 매 프레임 `sqV += -k*sq - c*sqV` 스프링 방정식
+- 벽 충돌 시 RESTITUTION 적용 전 impact 속도 캡처 → 세기에 비례해 스쿼시 누적
+- 연속 충돌 시 이미 출렁이는 상태에 새 충격이 더해짐(덮어쓰기 X)
+- `.jello-squash-wrap`에 `wrap.style.transform` 직접 적용 — 위치 물리(left/top)와 완전 분리
+- `border-radius`도 찌그러짐 크기에 비례 변동 (12 + mag×30 px)
+- 박스를 잡으면 `resetSquash()` 즉시 리셋
+- 별도 `squashRafId` RAF — 물리 루프 정지 후에도 스프링이 남아 진동하다 수렴
+- CSS `@keyframes jello-squash-h/v` + `.jello-squash-h/v` 클래스 + `--sq-compress/--sq-stretch` 변수 제거
+
+**조절 상수** (`useJelloPhysics.ts` 상단):
+```
+SQUASH_STIFFNESS  = 0.25  // 복원 속도
+SQUASH_DAMPING    = 0.05  // 감쇠 (낮을수록 더 오래 출렁)
+SQUASH_IMPACT     = 0.004 // 충돌→찌그러짐 변환계수
+SQUASH_COUPLE     = 0.5   // 반대축 늘어남 비율
+```
 
 ---
 
@@ -147,5 +164,5 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 
 ## 이후 단계
 
-4-2 관성 → 4-3 벽충돌(가상 데스크탑 경계) → 4-4 스쿼시+흔들림 →
+~~4-2~~ ~~4-3~~ ~~4-4~~ → **Phase 4-5 드리블** (메모됨) →
 Phase 5 볼륨(Core Audio) → Phase 6 Discord RPC → Phase 7 설정·모드·OBS

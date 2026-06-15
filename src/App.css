@@ -208,6 +208,7 @@ body {
   object-fit: cover;
   display: block;
   flex-shrink: 0;
+  -webkit-user-drag: none;
 }
 
 .jello-art-fallback {

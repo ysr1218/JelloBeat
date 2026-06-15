@@ -124,6 +124,22 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 - 경계는 `window.innerWidth × window.innerHeight` (가상 데스크탑 전체 기준 — 창이 이미 전체 커버)
 - RESTITUTION=0.55, 각 축별 속도 반전
 
+### Phase 4-5 — 드리블 (진행 중, JellySpring-css 브랜치)
+
+**현재 상태:** 드리블 코드 점검 완료(죽은 코드 없음, 주석 2개 수정).
+`e.buttons === 0` + Liang-Barsky 선분 판정 + 시간 정규화 normSpeed 방식으로 구현됨.
+
+**미해결 버그:** 버튼(⏮▶⏸⏭) 위에 커서를 가져가면 드리블이 발동해 박스가 도망가서 버튼을 못 누름.
+근본 원인: 드리블 발동 조건이 너무 헐거워서 버튼 클릭 의도로 천천히 이동할 때도 DRIBBLE_PAD=40 덕분에 hit 발생.
+
+**다음 할 일:** '관통(가로지르기) 판정' 방식으로 전환.
+박스에 들어가서 머물면(버튼 클릭 의도) 발동 안 하고, 가로질러 통과할 때만 발동.
+→ Plan Mode로 설계부터.
+
+**추가 수정:** `onMouseDown`에 `closest("button, input")` 가드 추가 → 버튼/슬라이더 클릭이 드래그로 가로채지지 않도록.
+
+---
+
 ### Step 4-4: 스프링 기반 젤리 스쿼시 ✓ (CSS 방식에서 물리 스프링으로 교체)
 
 **구현:** `useJelloPhysics.ts` — `squashTick` / `addSquashImpulse` / `resetSquash`

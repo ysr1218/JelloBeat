@@ -66,7 +66,7 @@ export function NowPlayingCard() {
         <div className="jello-content">
           <div className="jello-art-wrap">
             {thumbnailUrl
-              ? <img className="jello-art" src={thumbnailUrl} alt="" />
+              ? <img className="jello-art" src={thumbnailUrl} alt="" draggable={false} />
               : <div className="jello-art jello-art-fallback" />}
           </div>
           <div className="jello-right">

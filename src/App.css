@@ -138,15 +138,27 @@ body {
   --art-opacity: 0.4;
   --bg-opacity: 0.72;
   position: absolute;
-  display: inline-flex;
+  display: block;
   width: var(--jello-width);
   cursor: grab;
   height: calc(var(--jello-width) * 0.667);
+  user-select: none;
+  pointer-events: auto;
+  /* overflow/border-radius/box-shadow/transform → .jello-squash-wrap 으로 분리
+     이 요소는 left/top 위치만 담당 — transform 없음 */
+}
+
+/* 스쿼시 애니메이션 전용 래퍼. overflow·border-radius·box-shadow를 여기에 두어
+   .jello-box(위치)와 transform(스쿼시)이 서로 간섭하지 않게 함. */
+.jello-squash-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  user-select: none;
-  pointer-events: auto;
+  will-change: transform;
+  transform-origin: center center;
 }
 
 .jello-box.dragging {
@@ -385,3 +397,46 @@ body {
   font-size: 9px;
   color: rgba(255, 255, 255, 0.5);
 }
+
+/* ── Squash & stretch 조절 지점 ─────────────────────────────────────────
+   찌그러짐 강도만 여기서 조절. 지속시간은 useJelloPhysics.ts SQUASH_DURATION_MS.
+
+   --sq-compress : 충돌 순간 찌그러짐 (낮을수록 더 납작 · 0→완전 납작 · 1→변형없음)
+   --sq-stretch  : 충돌 순간 반대축 늘어남 (높을수록 더 길쭉 · 1→변형없음)
+
+   기본값: compress 0.52 / stretch 1.42 (강한 젤리)
+   약하게: compress 0.72 / stretch 1.20
+   ──────────────────────────────────────────────────────────────────────── */
+:root {
+  --sq-compress: 0.52;
+  --sq-stretch:  1.42;
+}
+
+/* jello-squash-h : 좌우 벽 충돌 — 가로로 납작해졌다 통통통 잦아들며 복원 */
+@keyframes jello-squash-h {
+  0%   { transform: scaleX(var(--sq-compress)) scaleY(var(--sq-stretch)); border-radius: 32px; }
+  14%  { transform: scaleX(1.24) scaleY(0.82);  border-radius: 7px;  }
+  27%  { transform: scaleX(0.86) scaleY(1.13);  border-radius: 20px; }
+  40%  { transform: scaleX(1.13) scaleY(0.91);  border-radius: 9px;  }
+  53%  { transform: scaleX(0.93) scaleY(1.06);  border-radius: 15px; }
+  66%  { transform: scaleX(1.06) scaleY(0.96);  border-radius: 11px; }
+  78%  { transform: scaleX(0.97) scaleY(1.02);  border-radius: 13px; }
+  89%  { transform: scaleX(1.02) scaleY(0.99);  border-radius: 12px; }
+  100% { transform: none;                         border-radius: 12px; }
+}
+
+/* jello-squash-v : 상하 벽 충돌 — 세로로 납작해졌다 통통통 잦아들며 복원 */
+@keyframes jello-squash-v {
+  0%   { transform: scaleX(var(--sq-stretch)) scaleY(var(--sq-compress)); border-radius: 32px; }
+  14%  { transform: scaleX(0.82) scaleY(1.24);  border-radius: 7px;  }
+  27%  { transform: scaleX(1.13) scaleY(0.86);  border-radius: 20px; }
+  40%  { transform: scaleX(0.91) scaleY(1.13);  border-radius: 9px;  }
+  53%  { transform: scaleX(1.06) scaleY(0.93);  border-radius: 15px; }
+  66%  { transform: scaleX(0.96) scaleY(1.06);  border-radius: 11px; }
+  78%  { transform: scaleX(1.02) scaleY(0.97);  border-radius: 13px; }
+  89%  { transform: scaleX(0.99) scaleY(1.02);  border-radius: 12px; }
+  100% { transform: none;                         border-radius: 12px; }
+}
+
+.jello-squash-h { animation: jello-squash-h 0.8s ease-out forwards; }
+.jello-squash-v { animation: jello-squash-v 0.8s ease-out forwards; }

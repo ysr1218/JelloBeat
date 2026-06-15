@@ -46,9 +46,11 @@ export function NowPlayingCard() {
   if (!np) {
     return (
       <div className="jello-box jello-idle" ref={boxRef} onMouseDown={onMouseDown}>
-        <div className="jello-bg-base" />
-        <div className="jello-content">
-          <p className="jello-idle-text">No media playing</p>
+        <div className="jello-squash-wrap">
+          <div className="jello-bg-base" />
+          <div className="jello-content">
+            <p className="jello-idle-text">No media playing</p>
+          </div>
         </div>
       </div>
     );
@@ -56,50 +58,52 @@ export function NowPlayingCard() {
 
   return (
     <div className="jello-box" ref={boxRef} onMouseDown={onMouseDown}>
-      <div className="jello-bg-base" />
-      {thumbnailUrl && (
-        <div className="jello-bg-art" style={{ backgroundImage: `url(${thumbnailUrl})` }} />
-      )}
-      <div className="jello-content">
-        <div className="jello-art-wrap">
-          {thumbnailUrl
-            ? <img className="jello-art" src={thumbnailUrl} alt="" />
-            : <div className="jello-art jello-art-fallback" />}
-        </div>
-        <div className="jello-right">
-          <div className="jello-info">
-            <p className="jello-source">♪ {simplifySource(np.source_app_id)}</p>
-            <p className="jello-title">{np.title || "Unknown title"}</p>
-            <p className="jello-artist">{np.artist || "Unknown artist"}</p>
+      <div className="jello-squash-wrap">
+        <div className="jello-bg-base" />
+        {thumbnailUrl && (
+          <div className="jello-bg-art" style={{ backgroundImage: `url(${thumbnailUrl})` }} />
+        )}
+        <div className="jello-content">
+          <div className="jello-art-wrap">
+            {thumbnailUrl
+              ? <img className="jello-art" src={thumbnailUrl} alt="" />
+              : <div className="jello-art jello-art-fallback" />}
           </div>
-          <div className="jello-mid">
-            <input
-              type="range"
-              className="jello-progress"
-              min={0} max={100} value={0}
-              onChange={() => {}}
-            />
-            <div className="jello-time">
-              <span>0:00</span>
-              <span>{formatDuration(np.duration_secs)}</span>
+          <div className="jello-right">
+            <div className="jello-info">
+              <p className="jello-source">♪ {simplifySource(np.source_app_id)}</p>
+              <p className="jello-title">{np.title || "Unknown title"}</p>
+              <p className="jello-artist">{np.artist || "Unknown artist"}</p>
             </div>
-            <div className="jello-transport">
-              <button className="jello-btn-skip" onClick={() => transport("SkipPrevious")}>⏮</button>
-              <button className="jello-btn-play" onClick={() => transport(np.is_playing ? "Pause" : "Play")}>
-                {np.is_playing ? "⏸" : "▶"}
-              </button>
-              <button className="jello-btn-skip" onClick={() => transport("SkipNext")}>⏭</button>
+            <div className="jello-mid">
+              <input
+                type="range"
+                className="jello-progress"
+                min={0} max={100} value={0}
+                onChange={() => {}}
+              />
+              <div className="jello-time">
+                <span>0:00</span>
+                <span>{formatDuration(np.duration_secs)}</span>
+              </div>
+              <div className="jello-transport">
+                <button className="jello-btn-skip" onClick={() => transport("SkipPrevious")}>⏮</button>
+                <button className="jello-btn-play" onClick={() => transport(np.is_playing ? "Pause" : "Play")}>
+                  {np.is_playing ? "⏸" : "▶"}
+                </button>
+                <button className="jello-btn-skip" onClick={() => transport("SkipNext")}>⏭</button>
+              </div>
             </div>
-          </div>
-          <div className="jello-volume">
-            <span className="jello-vol-icon">🔈</span>
-            <input
-              type="range"
-              className="jello-volume-slider"
-              min={0} max={100} defaultValue={80}
-              onChange={(e) => console.log("volume:", e.target.value)}
-            />
-            <span className="jello-vol-icon">🔊</span>
+            <div className="jello-volume">
+              <span className="jello-vol-icon">🔈</span>
+              <input
+                type="range"
+                className="jello-volume-slider"
+                min={0} max={100} defaultValue={80}
+                onChange={(e) => console.log("volume:", e.target.value)}
+              />
+              <span className="jello-vol-icon">🔊</span>
+            </div>
           </div>
         </div>
       </div>

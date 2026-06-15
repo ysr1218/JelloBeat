@@ -141,6 +141,7 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 | 혼합 DPI 멀티모니터 | 미검증 | CSS 픽셀 공간 처리 필요 |
 | Spotify AUMID | 확인 필요 | 실물 로그로 확인 후 수정 |
 | 곡 스킵 깜빡임 | Known Limitation | Phase 7 디바운스로 개선 예정 |
+| **YTM 정지 상태 시작 시 세션 미인식** | Known Bug (Phase 1) | YTM이 Paused/초기 상태에서 Other 타입으로 보고 → 후보 제외됨. 곡을 두 번 넘겨 Playing이 되면 그제야 잡힘. 향후 수정: Other 타입이라도 알려진 AUMID면 약한 점수로 후보 유지하거나, 정지 세션도 별도 처리 검토. |
 
 ---
 

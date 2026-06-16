@@ -126,17 +126,18 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 
 ### Phase 4-5 — 드리블 (진행 중, JellySpring-css 브랜치)
 
-**현재 상태:** 드리블 코드 점검 완료(죽은 코드 없음, 주석 2개 수정).
-`e.buttons === 0` + Liang-Barsky 선분 판정 + 시간 정규화 normSpeed 방식으로 구현됨.
+**완료:**
+- 관통(탈출) 판정 방식으로 전환: `prevInBox` ref 추가, 커서가 박스 안에 머무는 동안은 발동 안 함, 탈출 순간에만 impulse. `DRIBBLE_PAD` 상수 제거.
+- 버튼(⏮▶⏸⏭) 클릭 정상화: 박스 도망 문제 해결.
+- `onMouseDown`에 `closest("button, input")` 가드: 버튼/슬라이더 클릭이 드래그로 가로채지지 않도록.
+- Rust 커서 폴링 50ms → 16ms 단축(`lib.rs`): 빠른 커서가 박스를 통과할 때 JS 이벤트 차단되는 문제 해결(JS 코드 문제 아니었음).
 
-**미해결 버그:** 버튼(⏮▶⏸⏭) 위에 커서를 가져가면 드리블이 발동해 박스가 도망가서 버튼을 못 누름.
-근본 원인: 드리블 발동 조건이 너무 헐거워서 버튼 클릭 의도로 천천히 이동할 때도 DRIBBLE_PAD=40 덕분에 hit 발생.
+**진단 내용 (기록용):**
+빠른 커서 통과 시 드리블 미발동 원인: Rust `GetCursorPos()` 폴링이 50ms 주기라 빠른 커서(<240px/50ms)가 박스를 완전히 통과해도 감지 못하고 `ignore_cursor_events=true` 유지 → JS mousemove 이벤트가 WebView에 도달 안 함. JS segmentHitsRect 로직은 정상.
+16ms(≈60fps)로 줄여 해결. hit_rect padding 확장(방향 B)은 DRIBBLE_PAD 제거로 고친 버튼 도망 재발 위험이라 적용 안 함.
 
-**다음 할 일:** '관통(가로지르기) 판정' 방식으로 전환.
-박스에 들어가서 머물면(버튼 클릭 의도) 발동 안 하고, 가로질러 통과할 때만 발동.
-→ Plan Mode로 설계부터.
-
-**추가 수정:** `onMouseDown`에 `closest("button, input")` 가드 추가 → 버튼/슬라이더 클릭이 드래그로 가로채지지 않도록.
+**다음 할 일:** 테스트 2방향 — (1) 빠른 드리블 통과 잡히는지 (2) 회귀: 버튼 클릭·빈공간 클릭스루 여전히 정상인지.
+테스트 통과 시 Phase 4-5 완료 → Phase 5(볼륨, Core Audio)로.
 
 ---
 

@@ -9,7 +9,6 @@ const MAX_SPEED          = 100;   // 올릴수록 더 빠르게 날아감 (너�
 const HIT_RECT_MS        = 100;   // 물리 중 hit_rect 갱신 주기 (ms)
 
 // ── 드리블 상수 ─────────────────────────────────────────────────────────────
-const DRIBBLE_PAD       = 40;    // hit 판정 여유 (px, 박스 각 면 확장). 올릴수록 범위 넓어짐.
 const DRIBBLE_MIN_SPEED = 4.0;   // 이 속도(px/프레임 기준) 미만 커서는 드리블 미발동. 잡기 의도 구분. 올릴수록 더 세게 쳐야 드리블.
 const DRIBBLE_SCALE     = 0.8;   // 커서 속도(px/프레임 기준) → impulse 변환 계수. 올릴수록 같은 속도에 더 강하게 튕김.
 const DRIBBLE_MAX       = 28.0;  // impulse 최대값 (px/프레임). 세게 쳐도 이 이상 커지지 않음.
@@ -41,6 +40,7 @@ export function useJelloPhysics(
   // Dribble state
   const prevCursor           = useRef<{ x: number; y: number; t: number } | null>(null);
   const dribbleCooldownUntil = useRef(0);
+  const prevInBox            = useRef(false);
 
   // Squash spring state — offsets from scale(1,1), converge to 0
   const sqX = useRef(0);
@@ -191,6 +191,7 @@ export function useJelloPhysics(
     resetSquash();
     vel.current = { x: 0, y: 0 };
     ptrHistory.current = [];
+    prevInBox.current = false;
 
     const rect = boxRef.current!.getBoundingClientRect();
     dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -202,45 +203,84 @@ export function useJelloPhysics(
   // ── Mouse move / up ─────────────────────────────────────────────────────
   useEffect(() => {
     function onMove(e: MouseEvent) {
-      // ── 드리블: 버튼 미누름 상태에서 커서가 박스를 통과하면 커서 방향으로 impulse ──
-      if (e.buttons === 0 && prevCursor.current && e.timeStamp >= dribbleCooldownUntil.current) {
-        const el = boxRef.current;
-        if (el) {
-          const r = el.getBoundingClientRect();
-          const hit = segmentHitsRect(
-            prevCursor.current.x, prevCursor.current.y,
-            e.clientX, e.clientY,
-            r.left - DRIBBLE_PAD, r.top  - DRIBBLE_PAD,
-            r.right + DRIBBLE_PAD, r.bottom + DRIBBLE_PAD,
-          );
-          if (hit) {
+      // ── 드리블: 커서가 박스를 탈출하는 순간 커서 방향으로 impulse ──────────────
+      // 박스 안에 머무는 동안(클릭 의도)에는 발동 안 함 — 탈출 시에만 판정.
+      const el = boxRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        const inBox =
+          e.clientX >= r.left && e.clientX <= r.right &&
+          e.clientY >= r.top  && e.clientY <= r.bottom;
+
+        // ── 진단 로그 (박스 근처 300px 이내일 때만) ──────────────────────────
+        if (e.buttons === 0 && prevCursor.current) {
+          const nearBox =
+            e.clientX >= r.left - 300 && e.clientX <= r.right + 300 &&
+            e.clientY >= r.top  - 300 && e.clientY <= r.bottom + 300;
+          if (nearBox) {
+            const segHit = segmentHitsRect(
+              prevCursor.current.x, prevCursor.current.y,
+              e.clientX, e.clientY,
+              r.left, r.top, r.right, r.bottom,
+            );
             const cvx = e.clientX - prevCursor.current.x;
             const cvy = e.clientY - prevCursor.current.y;
             const cvLen = Math.hypot(cvx, cvy);
             const dt = Math.max(e.timeStamp - prevCursor.current.t, 1);
-            // 시간 정규화 속도(px/프레임 기준) — 이벤트 빈도 차이를 제거
             const normSpeed = cvLen / dt * 16;
-            if (cvLen > 0 && normSpeed >= DRIBBLE_MIN_SPEED) {
-              const nx = cvx / cvLen, ny = cvy / cvLen;
-              const impulse = Math.min(DRIBBLE_MAX, normSpeed * DRIBBLE_SCALE);
-              vel.current.x += nx * impulse;
-              vel.current.y += ny * impulse;
-              const sp = Math.hypot(vel.current.x, vel.current.y);
-              if (sp > MAX_SPEED) {
-                const s = MAX_SPEED / sp;
-                vel.current.x *= s;
-                vel.current.y *= s;
-              }
-              addSquashImpulse(Math.abs(nx) >= Math.abs(ny) ? "h" : "v", impulse);
-              // 정지 박스를 쳤을 때 physics RAF 재시작
-              if (rafId.current === 0) {
-                lastHitRectMs.current = performance.now();
-                rafId.current = requestAnimationFrame(tick);
-              }
-              dribbleCooldownUntil.current = e.timeStamp + DRIBBLE_COOLDOWN;
+            const cooldownOk = e.timeStamp >= dribbleCooldownUntil.current;
+            if (segHit || prevInBox.current) {
+              console.log("[dribble diag]", {
+                inBox, prevInBox: prevInBox.current, segHit,
+                normSpeed: normSpeed.toFixed(1), cooldownOk,
+                cvLen: cvLen.toFixed(1), dt: dt.toFixed(1),
+                cursor: [Math.round(e.clientX), Math.round(e.clientY)],
+                prev: prevCursor.current ? [Math.round(prevCursor.current.x), Math.round(prevCursor.current.y)] : null,
+                box: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
+              });
             }
           }
         }
+        // ── 진단 로그 끝 ────────────────────────────────────────────────────
+
+        if (
+          e.buttons === 0 &&
+          !inBox &&
+          prevCursor.current &&
+          e.timeStamp >= dribbleCooldownUntil.current &&
+          (prevInBox.current || segmentHitsRect(
+            prevCursor.current.x, prevCursor.current.y,
+            e.clientX, e.clientY,
+            r.left, r.top, r.right, r.bottom,
+          ))
+        ) {
+          const cvx = e.clientX - prevCursor.current.x;
+          const cvy = e.clientY - prevCursor.current.y;
+          const cvLen = Math.hypot(cvx, cvy);
+          const dt = Math.max(e.timeStamp - prevCursor.current.t, 1);
+          // 시간 정규화 속도(px/프레임 기준) — 이벤트 빈도 차이를 제거
+          const normSpeed = cvLen / dt * 16;
+          if (cvLen > 0 && normSpeed >= DRIBBLE_MIN_SPEED) {
+            const nx = cvx / cvLen, ny = cvy / cvLen;
+            const impulse = Math.min(DRIBBLE_MAX, normSpeed * DRIBBLE_SCALE);
+            vel.current.x += nx * impulse;
+            vel.current.y += ny * impulse;
+            const sp = Math.hypot(vel.current.x, vel.current.y);
+            if (sp > MAX_SPEED) {
+              const s = MAX_SPEED / sp;
+              vel.current.x *= s;
+              vel.current.y *= s;
+            }
+            addSquashImpulse(Math.abs(nx) >= Math.abs(ny) ? "h" : "v", impulse);
+            if (rafId.current === 0) {
+              lastHitRectMs.current = performance.now();
+              rafId.current = requestAnimationFrame(tick);
+            }
+            dribbleCooldownUntil.current = e.timeStamp + DRIBBLE_COOLDOWN;
+          }
+        }
+
+        prevInBox.current = inBox; // 드래그 여부 무관하게 항상 업데이트
       }
 
       // 커서 위치 항상 기록 (드리블 velocity 계산용, 드래그 여부 무관)
@@ -253,9 +293,8 @@ export function useJelloPhysics(
         x: e.clientX - dragOffset.current.x,
         y: e.clientY - dragOffset.current.y,
       };
-      const el = boxRef.current!;
-      el.style.left = pos.current.x + "px";
-      el.style.top  = pos.current.y + "px";
+      boxRef.current!.style.left = pos.current.x + "px";
+      boxRef.current!.style.top  = pos.current.y + "px";
 
       ptrHistory.current.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
       if (ptrHistory.current.length > 5) ptrHistory.current.shift();
@@ -264,6 +303,7 @@ export function useJelloPhysics(
     function onUp() {
       if (!isDragging.current) return;
       isDragging.current = false;
+      prevInBox.current = false;
       boxRef.current?.classList.remove("dragging");
 
       const h = ptrHistory.current;

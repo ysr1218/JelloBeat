@@ -104,7 +104,7 @@ pub fn run() {
                         let _ = poll_window.set_ignore_cursor_events(false);
 
                         loop {
-                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            std::thread::sleep(std::time::Duration::from_millis(16));
 
                             let rect = poll_state.hit_rect.lock().unwrap().clone();
                             let Some(rect) = rect else {

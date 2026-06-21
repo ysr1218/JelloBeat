@@ -110,21 +110,21 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 
 ---
 
-## 다음 작업 — Phase 4 계속
+## 다음 작업
 
-### Step 4-2: 관성 던지기 + 감속
-`useJelloPhysics.ts`에 추가:
-- 드래그 중 포인터 히스토리(최대 5개) 기록
-- mouseup 시 속도 계산 → RAF 루프 시작
-- DAMPING=0.92, STOP_THRESH=0.4
-- **보완:** `onMouseDown` 진입 시 `vel = {0,0}` 초기화 (cancelAnimationFrame은 이미 있음)
-- **보완:** 물리 루프 중 hit_rect를 100ms 주기(약 N프레임마다)로도 갱신 → 날아가는 박스도 잡을 수 있게
+**Phase 4 전체 완료 → main 브랜치 병합(JellySpring-css → main) → Phase 5**
 
-### Step 4-3: 벽 충돌 + 반사
-- 경계는 `window.innerWidth × window.innerHeight` (가상 데스크탑 전체 기준 — 창이 이미 전체 커버)
-- RESTITUTION=0.55, 각 축별 속도 반전
+### Phase 5 — 볼륨 제어 (Core Audio)
+- Windows Core Audio: `IAudioSessionManager2` / `ISimpleAudioVolume`
+- 대상 앱(브라우저/YTM)의 오디오 세션 볼륨을 AUMID로 매핑해 조절
+- `src-tauri/src/audio/` 모듈 신설
+- UI: 볼륨 슬라이더 실제 연결 (현재 `console.log`만)
 
-### Phase 4-5 — 드리블 ✓ (JellySpring-css 브랜치)
+### Phase 6 — Discord Rich Presence
+- `discord-rich-presence` 크레이트, IPC 방식
+- on/off 토글, 앱 시작 시 자동 연결
+
+### Phase 4-5 — 드리블 ✓
 
 **완료:**
 - 관통(탈출) 판정 방식: `prevInBox` ref, 탈출 순간에만 impulse, `DRIBBLE_PAD` 제거.
@@ -141,7 +141,14 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 **트레이드오프 (운동 중 차단):**
 박스가 날아다니는 3~5초 동안 가상 데스크탑 전체의 빈 공간 클릭이 뒤 창으로 전달 안 됨. 우클릭 더블클릭으로 즉시 해제 가능.
 
-**다음:** Phase 5(볼륨, Core Audio) → Phase 6 Discord RPC.
+---
+
+### Phase 4-6 — 음악 버튼 낙관적 업데이트 ✓
+
+- `useNowPlaying`: `optimisticIsPlaying` state 추가. `applyOptimistic(bool|null)` 노출.
+- SMTC `media:update` 이벤트 수신 시 `setOptimisticIsPlaying(null)` → 실제 상태로 자동 보정.
+- `NowPlayingCard`: ▶/⏸ 버튼 클릭 시 즉시 아이콘 토글, `invoke("transport")` 실패 시 `applyOptimistic(null)`로 자동 리버트.
+- ⏮/⏭는 아이콘 변화 없어 낙관적 업데이트 불필요.
 
 ---
 
@@ -180,27 +187,5 @@ SQUASH_COUPLE     = 0.5   // 반대축 늘어남 비율
 | Spotify AUMID | 확인 필요 | 실물 로그로 확인 후 수정 |
 | 곡 스킵 깜빡임 | Known Limitation | Phase 7 디바운스로 개선 예정 |
 | **YTM 정지 상태 시작 시 세션 미인식** | Known Bug (Phase 1) | YTM이 Paused/초기 상태에서 Other 타입으로 보고 → 후보 제외됨. 곡을 두 번 넘겨 Playing이 되면 그제야 잡힘. 향후 수정: Other 타입이라도 알려진 AUMID면 약한 점수로 후보 유지하거나, 정지 세션도 별도 처리 검토. |
-
----
-
-## 이후 단계
-
-### Phase 4-5 — 드리블 (기획 완료, 다음 구현 대상)
-
-날아가는 젤리박스를 마우스 커서로 쳐서 농구공 드리블처럼 갖고 놀기.
-
-**동작 방식:**
-- 커서가 움직이는 박스 위를 지나갈 때 커서 이동 방향·속도에 비례한 impulse를 velocity에 누적.
-  클릭 없이 접촉만으로 반응 (자동 impulse, 클릭 불필요 방식 채택).
-- 박스 속도 임계값으로 모드 전환:
-  - **드리블 모드** (빠름): 커서 접촉 → impulse 적용, 드래그 비활성
-  - **잡기 모드** (느림/정지): 기존 드래그 동작 유지
-- 기존 velocity RAF 루프 + 마우스 이벤트 조합. 새 물리 시스템 불필요.
-- 드리블 추가 후 SQUASH_IMPACT 등 스프링 수치 재조정 필요할 수 있음.
-
-**구현 전 결정할 사항:**
-1. 드리블/잡기 전환 속도 임계값 — STOP_THRESH(0.40)와 별도 상수 or 공유 여부
-2. hit_rect 갱신 주기 — 드리블 중 박스가 빠르게 움직이므로 HIT_RECT_MS(100ms) 단축 검토
-3. impulse 적용 방식 — 박스를 통과하는 순간만 줄지, 커서가 박스 위에 머무는 동안 계속 줄지
-
-→ Phase 5 볼륨(Core Audio) → Phase 6 Discord RPC → Phase 7 설정·모드·OBS
+| 곡 전환 시 제목/앨범아트 1~2초 지연 | Known Limitation | SMTC 구조적 지연 — 음악 앱이 새 곡 메타데이터를 SMTC에 전달하는 타이밍이 앱마다 다름. 코드 쪽 추가 지연 없음(디바운스 없음, 썸네일 직렬화 50ms 미만). |
+| 화면 off→on 시 박스 사라짐 | Known Bug | 디스플레이 재초기화 시 가상 데스크탑 좌표 계산 틀어져 박스가 화면 밖으로 이동하는 것으로 추정. Phase 7에서 디스플레이 변경 이벤트 구독 + fit_to_virtual_desktop 재호출 + 위치 보정으로 해결 예정. |

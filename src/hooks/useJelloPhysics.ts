@@ -1,4 +1,5 @@
 import { RefObject, useEffect, useLayoutEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 // ── 물리 상수 ────────────────────────────────────────────────────────────────
 const DAMPING            = 0.960; // 올릴수록 오래 미끄러짐 (0→즉시정지, 1→영원히)
@@ -13,6 +14,7 @@ const DRIBBLE_MIN_SPEED = 4.0;   // 이 속도(px/프레임 기준) 미만 커�
 const DRIBBLE_SCALE     = 0.3;   // 커서 속도(px/프레임 기준) → impulse 변환 계수. 올릴수록 같은 속도에 더 강하게 튕김.
 const DRIBBLE_MAX       = 50.0;  // impulse 최대값 (px/프레임). 세게 쳐도 이 이상 커지지 않음.
 const DRIBBLE_COOLDOWN  = 50;    // 연타 방지 쿨다운 (ms). 낮출수록 더 빠른 연타 가능.
+const RIGHT_DBL_MS      = 300;   // 우클릭 더블클릭 인식 시간 창 (ms)
 
 // ── 스쿼시 스프링 상수 ───────────────────────────────────────────────────────
 const SQUASH_STIFFNESS   = 0.25;  // 올릴수록 빠르게 복원 (스프링 강도)
@@ -41,6 +43,8 @@ export function useJelloPhysics(
   const prevCursor           = useRef<{ x: number; y: number; t: number } | null>(null);
   const dribbleCooldownUntil = useRef(0);
   const prevInBox            = useRef(false);
+  const isMovingRef          = useRef(false);
+  const lastRightClickTs     = useRef(0);
 
   // Squash spring state — offsets from scale(1,1), converge to 0
   const sqX = useRef(0);
@@ -85,6 +89,7 @@ export function useJelloPhysics(
       squashRafId.current = requestAnimationFrame(squashTick);
     } else {
       squashRafId.current = 0;
+      syncMotionMode();
       if (wrap) { wrap.style.transform = ""; wrap.style.borderRadius = ""; }
     }
   }
@@ -94,8 +99,10 @@ export function useJelloPhysics(
     const delta = impact * SQUASH_IMPACT;
     if (axis === "h") { sqX.current -= delta; sqY.current += delta * SQUASH_COUPLE; }
     else              { sqY.current -= delta; sqX.current += delta * SQUASH_COUPLE; }
-    if (squashRafId.current === 0)
+    if (squashRafId.current === 0) {
       squashRafId.current = requestAnimationFrame(squashTick);
+      syncMotionMode();
+    }
   }
 
   function resetSquash() {
@@ -104,6 +111,28 @@ export function useJelloPhysics(
     sqX.current = sqY.current = sqVX.current = sqVY.current = 0;
     const wrap = boxRef.current?.querySelector<HTMLDivElement>(".jello-squash-wrap");
     if (wrap) { wrap.style.transform = ""; wrap.style.borderRadius = ""; }
+  }
+
+  function syncMotionMode() {
+    const moving = rafId.current !== 0 || squashRafId.current !== 0;
+    if (moving === isMovingRef.current) return;
+    isMovingRef.current = moving;
+    invoke("set_motion_mode", { moving }).catch(console.error);
+  }
+
+  function onContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    const now = e.timeStamp;
+    if (now - lastRightClickTs.current <= RIGHT_DBL_MS) {
+      cancelAnimationFrame(rafId.current);
+      rafId.current = 0;
+      resetSquash();
+      vel.current = { x: 0, y: 0 };
+      syncMotionMode();
+      lastRightClickTs.current = 0;
+    } else {
+      lastRightClickTs.current = now;
+    }
   }
 
   // 커서 이동 선분[(ax,ay)→(bx,by)]이 사각형[rx1..rx2 × ry1..ry2]과 교차하는지 (Liang-Barsky)
@@ -176,19 +205,23 @@ export function useJelloPhysics(
 
     if (speed > STOP_THRESH) {
       rafId.current = requestAnimationFrame(tick);
+      syncMotionMode();
     } else {
-      rafId.current = 0; // sentinel: physics loop not running
+      rafId.current = 0;
+      syncMotionMode();
       vel.current = { x: 0, y: 0 };
-      onSettleRef.current(); // final hit_rect when fully stopped
+      onSettleRef.current();
     }
   }
 
   // ── Mouse down ──────────────────────────────────────────────────────────
   function onMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button, input")) return;
     cancelAnimationFrame(rafId.current);
     rafId.current = 0;
     resetSquash();
+    syncMotionMode();
     vel.current = { x: 0, y: 0 };
     ptrHistory.current = [];
     prevInBox.current = false;
@@ -211,37 +244,6 @@ export function useJelloPhysics(
         const inBox =
           e.clientX >= r.left && e.clientX <= r.right &&
           e.clientY >= r.top  && e.clientY <= r.bottom;
-
-        // ── 진단 로그 (박스 근처 300px 이내일 때만) ──────────────────────────
-        if (e.buttons === 0 && prevCursor.current) {
-          const nearBox =
-            e.clientX >= r.left - 300 && e.clientX <= r.right + 300 &&
-            e.clientY >= r.top  - 300 && e.clientY <= r.bottom + 300;
-          if (nearBox) {
-            const segHit = segmentHitsRect(
-              prevCursor.current.x, prevCursor.current.y,
-              e.clientX, e.clientY,
-              r.left, r.top, r.right, r.bottom,
-            );
-            const cvx = e.clientX - prevCursor.current.x;
-            const cvy = e.clientY - prevCursor.current.y;
-            const cvLen = Math.hypot(cvx, cvy);
-            const dt = Math.max(e.timeStamp - prevCursor.current.t, 1);
-            const normSpeed = cvLen / dt * 16;
-            const cooldownOk = e.timeStamp >= dribbleCooldownUntil.current;
-            if (segHit || prevInBox.current) {
-              console.log("[dribble diag]", {
-                inBox, prevInBox: prevInBox.current, segHit,
-                normSpeed: normSpeed.toFixed(1), cooldownOk,
-                cvLen: cvLen.toFixed(1), dt: dt.toFixed(1),
-                cursor: [Math.round(e.clientX), Math.round(e.clientY)],
-                prev: prevCursor.current ? [Math.round(prevCursor.current.x), Math.round(prevCursor.current.y)] : null,
-                box: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
-              });
-            }
-          }
-        }
-        // ── 진단 로그 끝 ────────────────────────────────────────────────────
 
         if (
           e.buttons === 0 &&
@@ -275,6 +277,7 @@ export function useJelloPhysics(
             if (rafId.current === 0) {
               lastHitRectMs.current = performance.now();
               rafId.current = requestAnimationFrame(tick);
+              syncMotionMode();
             }
             dribbleCooldownUntil.current = e.timeStamp + DRIBBLE_COOLDOWN;
           }
@@ -322,6 +325,7 @@ export function useJelloPhysics(
       if (Math.hypot(vel.current.x, vel.current.y) > STOP_THRESH) {
         lastHitRectMs.current = performance.now();
         rafId.current = requestAnimationFrame(tick);
+        syncMotionMode();
       } else {
         vel.current = { x: 0, y: 0 };
         onSettleRef.current();
@@ -330,9 +334,11 @@ export function useJelloPhysics(
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+    window.addEventListener("contextmenu", onContextMenu);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("contextmenu", onContextMenu);
       cancelAnimationFrame(rafId.current);
       cancelAnimationFrame(squashRafId.current);
     };

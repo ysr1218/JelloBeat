@@ -34,6 +34,14 @@ pub fn transport(_cmd: crate::media::TransportCommand) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn set_motion_mode(
+    moving: bool,
+    state: tauri::State<std::sync::Arc<crate::overlay::OverlayState>>,
+) {
+    *state.force_interactive.lock().unwrap() = moving;
+}
+
+#[tauri::command]
 pub fn set_hit_rect(
     x: i32,
     y: i32,

@@ -80,12 +80,14 @@ pub struct HitRect {
 
 pub struct OverlayState {
     pub hit_rect: Mutex<Option<HitRect>>,
+    pub force_interactive: Mutex<bool>,
 }
 
 impl OverlayState {
     pub fn new() -> Self {
         Self {
             hit_rect: Mutex::new(None),
+            force_interactive: Mutex::new(false),
         }
     }
 }

@@ -124,20 +124,24 @@ Chrome은 탭/창이 바뀔 때 같은 AUMID(`chrome.exe`)로 새 COM 세션 객
 - 경계는 `window.innerWidth × window.innerHeight` (가상 데스크탑 전체 기준 — 창이 이미 전체 커버)
 - RESTITUTION=0.55, 각 축별 속도 반전
 
-### Phase 4-5 — 드리블 (진행 중, JellySpring-css 브랜치)
+### Phase 4-5 — 드리블 ✓ (JellySpring-css 브랜치)
 
 **완료:**
-- 관통(탈출) 판정 방식으로 전환: `prevInBox` ref 추가, 커서가 박스 안에 머무는 동안은 발동 안 함, 탈출 순간에만 impulse. `DRIBBLE_PAD` 상수 제거.
-- 버튼(⏮▶⏸⏭) 클릭 정상화: 박스 도망 문제 해결.
-- `onMouseDown`에 `closest("button, input")` 가드: 버튼/슬라이더 클릭이 드래그로 가로채지지 않도록.
-- Rust 커서 폴링 50ms → 16ms 단축(`lib.rs`): 빠른 커서가 박스를 통과할 때 JS 이벤트 차단되는 문제 해결(JS 코드 문제 아니었음).
+- 관통(탈출) 판정 방식: `prevInBox` ref, 탈출 순간에만 impulse, `DRIBBLE_PAD` 제거.
+- 버튼(⏮▶⏸⏭) 클릭 정상화, `closest("button, input")` + `e.button !== 0` 가드.
+- Rust 커서 폴링 50ms → 16ms 단축.
+- **방법 C — 운동 중 click-through 전면 해제** (`OverlayState.force_interactive` + `set_motion_mode` Tauri 커맨드):
+  - 박스가 운동 중(physics RAF 또는 squash RAF 동작)이면 `force_interactive=true` → Rust 폴링 루프가 `ignore_cursor_events=false` 상시 유지 → 모든 mousemove 이벤트 JS 수신 가능.
+  - 박스 정지 시 `force_interactive=false` → 기존 hit_rect 폴링으로 복귀.
+  - `syncMotionMode()` 호출 위치: tick 계속/정지, squashTick 정착, addSquashImpulse 시작, onMouseDown 잡기, onUp 던지기, onMove 드리블 RAF 시작.
+- **우클릭 더블클릭(≤300ms) = 즉시 정지**: `onContextMenu` → vel 초기화 + 두 RAF 취소 + syncMotionMode → 클릭스루 즉시 복귀.
+- 우클릭 컨텍스트 메뉴 항상 차단 (`preventDefault`).
+- 진단 로그(`[dribble diag]`) 제거.
 
-**진단 내용 (기록용):**
-빠른 커서 통과 시 드리블 미발동 원인: Rust `GetCursorPos()` 폴링이 50ms 주기라 빠른 커서(<240px/50ms)가 박스를 완전히 통과해도 감지 못하고 `ignore_cursor_events=true` 유지 → JS mousemove 이벤트가 WebView에 도달 안 함. JS segmentHitsRect 로직은 정상.
-16ms(≈60fps)로 줄여 해결. hit_rect padding 확장(방향 B)은 DRIBBLE_PAD 제거로 고친 버튼 도망 재발 위험이라 적용 안 함.
+**트레이드오프 (운동 중 차단):**
+박스가 날아다니는 3~5초 동안 가상 데스크탑 전체의 빈 공간 클릭이 뒤 창으로 전달 안 됨. 우클릭 더블클릭으로 즉시 해제 가능.
 
-**다음 할 일:** 테스트 2방향 — (1) 빠른 드리블 통과 잡히는지 (2) 회귀: 버튼 클릭·빈공간 클릭스루 여전히 정상인지.
-테스트 통과 시 Phase 4-5 완료 → Phase 5(볼륨, Core Audio)로.
+**다음:** Phase 5(볼륨, Core Audio) → Phase 6 Discord RPC.
 
 ---
 

@@ -106,6 +106,15 @@ pub fn run() {
                         loop {
                             std::thread::sleep(std::time::Duration::from_millis(16));
 
+                            // Box in motion: skip hit_rect polling, keep window fully interactive.
+                            if *poll_state.force_interactive.lock().unwrap() {
+                                if !was_inside {
+                                    was_inside = true;
+                                    let _ = poll_window.set_ignore_cursor_events(false);
+                                }
+                                continue;
+                            }
+
                             let rect = poll_state.hit_rect.lock().unwrap().clone();
                             let Some(rect) = rect else {
                                 // hit_rect not initialized yet — keep window fully interactive
@@ -150,6 +159,7 @@ pub fn run() {
             commands::get_now_playing,
             commands::transport,
             commands::set_hit_rect,
+            commands::set_motion_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useNowPlaying } from "../hooks/useNowPlaying";
 import { useJelloPhysics } from "../hooks/useJelloPhysics";
 
+type TransportCmd = "Play" | "Pause" | "TogglePlayPause" | "SkipNext" | "SkipPrevious";
+
 function formatDuration(secs: number | null): string {
   if (!secs) return "--:--";
   const m = Math.floor(secs / 60);
@@ -19,9 +21,18 @@ function simplifySource(id: string | null | undefined): string {
 }
 
 export function NowPlayingCard() {
-  const { np, thumbnailUrl } = useNowPlaying();
-  const transport = (cmd: string) => invoke("transport", { cmd }).catch(console.error);
+  const { np, thumbnailUrl, applyOptimistic } = useNowPlaying();
   const boxRef = useRef<HTMLDivElement>(null);
+
+  // Sends a transport command. Pass optimisticPlaying to immediately flip the
+  // play/pause icon; reverts automatically if the command fails.
+  const transport = useCallback((cmd: TransportCmd, optimisticPlaying?: boolean) => {
+    if (optimisticPlaying !== undefined) applyOptimistic(optimisticPlaying);
+    invoke("transport", { cmd }).catch((err) => {
+      console.error(err);
+      if (optimisticPlaying !== undefined) applyOptimistic(null);
+    });
+  }, [applyOptimistic]);
 
   // Stable callback: report current bounding rect to Rust for hit-testing.
   const updateHitRect = useCallback(() => {
@@ -88,7 +99,7 @@ export function NowPlayingCard() {
               </div>
               <div className="jello-transport">
                 <button className="jello-btn-skip" onClick={() => transport("SkipPrevious")}>⏮</button>
-                <button className="jello-btn-play" onClick={() => transport(np.is_playing ? "Pause" : "Play")}>
+                <button className="jello-btn-play" onClick={() => transport(np.is_playing ? "Pause" : "Play", !np.is_playing)}>
                   {np.is_playing ? "⏸" : "▶"}
                 </button>
                 <button className="jello-btn-skip" onClick={() => transport("SkipNext")}>⏭</button>

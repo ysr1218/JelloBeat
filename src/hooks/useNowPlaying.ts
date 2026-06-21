@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -25,6 +25,8 @@ function toBase64Chunked(bytes: number[]): string {
 
 export function useNowPlaying() {
   const [np, setNp] = useState<NowPlaying | null>(null);
+  // null = no override; boolean = optimistic is_playing while waiting for SMTC event.
+  const [optimisticIsPlaying, setOptimisticIsPlaying] = useState<boolean | null>(null);
 
   useEffect(() => {
     // Initial fetch in case the app is already playing when we load.
@@ -32,6 +34,7 @@ export function useNowPlaying() {
 
     // Subscribe to real-time updates pushed from Rust.
     const unlistenPromise = listen<NowPlaying | null>("media:update", (e) => {
+      setOptimisticIsPlaying(null); // real event arrives → clear optimistic override
       setNp(e.payload);
     });
 
@@ -40,10 +43,21 @@ export function useNowPlaying() {
     };
   }, []);
 
+  // Optimistically override is_playing before SMTC event arrives.
+  // Pass null to revert (e.g. when transport() fails).
+  const applyOptimistic = useCallback((isPlaying: boolean | null) => {
+    setOptimisticIsPlaying(isPlaying);
+  }, []);
+
+  const effectiveNp =
+    np !== null && optimisticIsPlaying !== null
+      ? { ...np, is_playing: optimisticIsPlaying }
+      : np;
+
   const thumbnailUrl =
     np?.thumbnail && np?.thumbnail_content_type
       ? `data:${np.thumbnail_content_type};base64,${toBase64Chunked(np.thumbnail)}`
       : null;
 
-  return { np, thumbnailUrl };
+  return { np: effectiveNp, thumbnailUrl, applyOptimistic };
 }

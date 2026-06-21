@@ -25,9 +25,11 @@ pub fn run() {
             // OverlayState: shared hit-rect for cursor polling (click-through)
             app.manage(std::sync::Arc::new(overlay::OverlayState::new()));
 
-            // Resize window to cover the current monitor (no hardcoded resolution)
+            // Size and position first (hidden), then show — avoids DWM composition
+            // mode transition being visible to the user.
             let main_win = app.get_webview_window("main").unwrap();
             overlay::fit_to_virtual_desktop(&main_win);
+            let _ = main_win.show();
 
             // ── Monitor diagnostics (always-on, for multi-monitor design) ──
             {

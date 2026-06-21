@@ -17,8 +17,7 @@
         "height": 600,
         "transparent": true,
         "decorations": false,
-        "alwaysOnTop": true,
-        "visible": false
+        "alwaysOnTop": true
       }
     ],
     "security": {
